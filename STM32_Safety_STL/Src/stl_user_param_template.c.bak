@@ -1,0 +1,78 @@
+/**
+  ******************************************************************************
+  * @file    stl_user_param_template.c
+  * @author  MCD Application Team
+  * @brief   STL User parameters
+  ******************************************************************************
+  * @attention
+  *
+  * <h2><center>&copy; Copyright (c) 2018 STMicroelectronics. 
+  * All rights reserved.</center></h2>
+  *
+  * This software component is licensed by ST under Image license SLA0047, 
+  * the "License"; You may not use this file except in compliance with the 
+  * License. You may obtain a copy of the License at:
+  *                              www.st.com/SLA0047
+  *
+  ******************************************************************************
+  */
+
+/* Includes ------------------------------------------------------------------*/
+#include <stdint.h>
+#include <string.h>
+
+
+/* Private typedef -----------------------------------------------------------*/
+
+/* Private defines -----------------------------------------------------------*/
+/* FLASH configuration */
+
+#define STL_ROM_START_ADDR (0x08000000UL) /* customizable */
+#if defined (STM32F429xx) || defined (STM32F469xx)
+#define STL_ROM_END_ADDR   (0x081FFFFFUL) /* customizable */ /* 2 Mbytes */
+#elif defined (STM32F410Rx)
+#define STL_ROM_END_ADDR   (0x0801FFFFUL) /* customizable */ /* 128 kbytes */
+#elif defined (STM32F411xE) || defined (STM32F401xE)
+#define STL_ROM_END_ADDR   (0x0807FFFFUL) /* customizable */ /* 512 kbytes */
+#elif defined (STM32F407xx)
+#define STL_ROM_END_ADDR   (0x080FFFFFUL) /* customizable */ /* 1 Mbyte */
+#elif defined (STM32F413xx)
+#define STL_ROM_END_ADDR   (0x0817FFFFUL) /* customizable */ /* 1536 kbytes */
+#else
+#error "device not supported"
+#endif
+/* TM RAM Backup Buffer configuration */
+/* the size is fixed to 8 * 32-bit words due to STL design constraint */
+/* !! don't change this value !! */
+#define STL_TM_RAM_BCKP_BUF_SZ (8UL)
+/* User shall locate the buffer in RAM */
+/* The RAM backup buffer is placed in "backup_buffer_section". */
+/* "backup_buffer_section" section is defined in scatter file */
+
+
+/* Private macros ------------------------------------------------------------*/
+
+/* Private variables ---------------------------------------------------------*/
+
+/* Global variables ----------------------------------------------------------*/
+uint32_t STL_RomStart = STL_ROM_START_ADDR;
+uint32_t STL_RomEnd = STL_ROM_END_ADDR;
+#ifdef STL_DISABLE_RAM_BCKUP_BUF
+uint32_t *STL_pRamTmBckUpBuf = NULL; /* no Backup Buffer */
+#else
+#if defined ( __ICCARM__ )
+uint32_t STL_aRamTmBckUpBuf[STL_TM_RAM_BCKP_BUF_SZ] @ "backup_buffer_section";
+#elif defined ( __CC_ARM ) || defined(__GNUC__)
+uint32_t STL_aRamTmBckUpBuf[STL_TM_RAM_BCKP_BUF_SZ] __attribute__((section("backup_buffer_section")));
+//#endif /*  __ICCARM__ */
+uint32_t *STL_pRamTmBckUpBuf = (uint32_t *)STL_aRamTmBckUpBuf;
+#endif /*  __ICCARM__ */
+#endif /* STL_DISABLE_RAM_BCKUP_BUF */
+
+/* Private function prototypes -----------------------------------------------*/
+
+/* Functions Definition ------------------------------------------------------*/
+
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+

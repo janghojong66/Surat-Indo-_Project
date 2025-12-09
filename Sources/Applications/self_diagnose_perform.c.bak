@@ -1,0 +1,336 @@
+/** ****************************************************************************
+  * \file    Self_Diagnose_perform.c(Performing pre-self-diagnosis)
+  * \author  Jang Ho Jong
+  * \version V1.0.0
+  * \date    2023.06.10
+  * \brief   Self_Diagnose_perform Thread Body 
+  * ***************************************************************************/
+
+/* Includes ------------------------------------------------------------------*/
+#include "self_diagnose_perform.h"
+/*----------------------------------------------------------------------------
+ *      'Self_Diagnose_perform': Performing pre-self-diagnosis
+ *---------------------------------------------------------------------------*/
+/** \addtogroup Applications
+  * \{ */
+
+/** \defgroup Self_Diagnose_perform
+  * \brief Self_Diagnose_perform
+  * \{ */
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+/* Private constants ---------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+/** \defgroup Self_Diagnose_perform_Variables Self_Diagnose_perform 비공개 변수
+  * \{ */
+static void Read_Sensor_Current_Value(void);
+static void Read_Sensor_OSSD_Input(void);
+void Read_Relay_FeedBack_State(void);
+ 
+
+/* Private function prototypes -----------------------------------------------*/
+
+
+/** \brief  Self_Diagnose_perform 본체
+  * \note   자가진단을 수행하고 센서, 릴레이등 이상을 검사하고 이상 발생시 HLT_SIGNAL를 송출한다.
+  * \param  argument - 쓰레드로 전달된 인자
+  * \retval 없음
+  */
+void Self_Diagnose_Perform(void)
+{
+	
+		/* kRY-SNP 릴레이를 ON 시켜서 장애물 센서쪽에 전원을 공급한다. */
+	Relay_On(snp_out);
+//	cprintf("\nSNP Relay Switch ON \n");
+	
+	/* 감지 센서의 연결 상태 점검  */
+	// 센서의 연결 상태는 ADC1의 전류가 20mA ~ 30mA 상태를 유지 해야 함.
+	HAL_Delay(500);
+   Read_Sensor_Current_Value();
+//   cprintf("\nGG712S Sensor Current Value TEST? : PASS\n");	  
+	
+	/* 감지 센서의 초기화 상태 점검  */
+	// 센서의 초기화 상태는 각 센서의 OSSD1, OSSD2의 입력상태가 Low 이어야 함.
+
+  Read_Sensor_OSSD_Input();
+//	cprintf("\nGG712S Sensor OSSD1/OSSD2 CHANEL TEST? : PASS\n");		
+	/* 릴레이 피드백 상태 점검  */
+	// 릴레이 피드백 상태를 점검하기 위해서는 릴레이 제어포트를 "ON"시켜야함
+	// 릴레이 피드백 상태는 각각의 릴레이 FB 값이 HIGH 이어야 함.
+  Read_Relay_FeedBack_State();
+//  cprintf("\nSAFETY RELAY(ELESTA_SIS3)FEED BACK TEST? : PASS\n");	
+	Check_Temperature();
+	Relay_On(hlt_out);	
+}
+
+/** \brief  ADUM4190으로부터 현재의 전류값을 읽어온다.
+  * \param  ADC-Sensor 구조체 포인터
+  * \note   센서의 연결상태를 체크하여 연결되지 않았으면 계속 Rebooting 한다
+  * \retval 없음
+  */
+
+static void Read_Sensor_Current_Value(void)
+{
+  u16_t cur_val1=0, cur_val2=0, cur_val3=0,cur_val4=0;
+  u08_t  i;
+	Led_t     * led[kNbrOfLEDs];
+  Relay_t   * relay[kNbrOfDOs];
+	
+  led[kLED_RUN] = run_led;
+  led[kLED_ERROR] = error_led;
+  led[kLED_OBR] = obr_led;
+  led[kLED_DER] = der_led;
+  led[kLED_OBL] = obl_led;
+  led[kLED_DEL] = del_led;
+  led[kLED_CON_RX] = console_rx_led;
+  led[kLED_CON_TX] = console_tx_led;
+
+	relay[kRY_EB1] = eb1_out ;
+  relay[kRY_EB2] = eb2_out ;
+  relay[kRY_SNP] = snp_out ;
+  relay[kRY_HLT] = hlt_out ;
+  relay[kRY_OBR] = obr_out ;
+  relay[kRY_DER] = der_out ;
+  relay[kRY_OBL] = obl_out ;
+  relay[kRY_DEL] = del_out ;
+/*****************************************************************************
+  **************************** OBR Sensor  ***********************************
+******************************************************************************/
+	  HAL_ADC_Start(&hadc1);
+		while(HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+		{
+			cur_val1 = (u16_t)HAL_ADC_GetValue(&hadc1);
+			cur_val1 = ((3300U * cur_val1) / 4095U);
+			sdin[kMO_1]->Sensor_Cur = (cur_val1);	
+		}
+ 		cprintf("OBR SENSOR Current = %d\r\n", cur_val1);
+		
+/*****************************************************************************
+  **************************** DER Sensor  ***********************************
+******************************************************************************/
+	  HAL_ADC_Start(&hadc1);
+		while(HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+	  {
+			cur_val2 = (u16_t)HAL_ADC_GetValue(&hadc1);
+			cur_val2 = ((3300U * cur_val2) / 4095U);
+			sdin[kMO_2]->Sensor_Cur = (cur_val2);	
+		}
+ 		cprintf("DER SENSOR Current = %d\r\n", cur_val2);
+
+/*****************************************************************************
+  **************************** OBL Sensor  ***********************************
+******************************************************************************/
+	  HAL_ADC_Start(&hadc1);
+		while(HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+		{
+			cur_val3 = (u16_t)HAL_ADC_GetValue(&hadc1);
+			cur_val3 = ((3300U * cur_val3) / 4095U);
+			sdin[kMO_3]->Sensor_Cur = (cur_val3);	
+		}
+ 		cprintf("OBL SENSOR Current = %d\r\n", cur_val3);
+
+/*****************************************************************************
+  **************************** DEL Sensor  ***********************************
+******************************************************************************/
+	  HAL_ADC_Start(&hadc1);
+		while(HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+	  {
+			cur_val4 = (u16_t)HAL_ADC_GetValue(&hadc1);
+			cur_val4 = ((3300U * cur_val4) / 4095U);
+			sdin[kMO_4]->Sensor_Cur = (cur_val4);	
+		}
+  	cprintf("DEL SENSOR Current = %d\r\n", cur_val4);	
+		
+    for(i = 0; i < kNbrOfMO ; i ++)
+		{
+	    if((sdin[i]->Sensor_Cur < MAX_ACT_CUR)  && (sdin[i]->Sensor_Cur > MIN_ACT_CUR))
+		  {
+		    if((sdin[i]->Sensor_OSSD1== 1U) && (sdin[i]->Sensor_OSSD2== 1U))
+			  {
+				  cprintf("==============Derailment or OBstacle==================\r\n");		
+					Led_On(error_led);				
+//					Relay_On(eb1_out);
+//					Relay_On(eb2_out);				
+//					Relay_On(relay[i+4]);
+					Relay_Off(hlt_out);	
+					cprintf("System While Loop1!\n\n");
+#ifndef __CT_EXT_CODE__
+					while (1) {};
+#endif
+		 	  }
+			}
+		  else if(sdin[i]->Sensor_Cur < LOW_CUR )  
+      {	
+				cprintf("==============Not Connected Sensor==================\r\n");				
+			  Led_On(error_led);				
+		    Relay_Off(hlt_out);	 		
+				cprintf("System While Loop!\n\n");
+#ifndef __CT_EXT_CODE__
+					while (1) {};
+#endif				
+      }
+	 } 
+}
+
+/** \brief  TEST SN#_ON Port를 구동하여 센서의 OSSD1,OSSD2의 값을 읽어온다.
+  * \note   OSSD1,OSSD2의 값이 Low 상태이어야 정상임.
+  * \retval 없음
+  */
+
+static void Read_Sensor_OSSD_Input(void)
+{
+	u08_t	i;
+	Led_t     * led[kNbrOfLEDs];
+  Relay_t   * relay[kNbrOfDOs];
+	
+  led[kLED_RUN] = run_led;
+  led[kLED_ERROR] = error_led;
+  led[kLED_OBR] = obr_led;
+  led[kLED_DER] = der_led;
+  led[kLED_OBL] = obl_led;
+  led[kLED_DEL] = del_led;
+  led[kLED_CON_RX] = console_rx_led;
+  led[kLED_CON_TX] = console_tx_led;
+
+	relay[kRY_EB1] = eb1_out ;
+  relay[kRY_EB2] = eb2_out ;
+  relay[kRY_SNP] = snp_out ;
+  relay[kRY_HLT] = hlt_out ;
+  relay[kRY_OBR] = obr_out ;
+  relay[kRY_DER] = der_out ;
+  relay[kRY_OBL] = obl_out ;
+  relay[kRY_DEL] = del_out ;
+
+
+  cprintf("\n====================================================");
+  cprintf("\n===================Self Test =======================");	
+	cprintf("\n======================================================\n");
+	DO_On(mcu_test1);   //20231212 추가
+  HAL_Delay(20);
+  sdin[kMO_1] ->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0));
+  sdin[kMO_1] ->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1));
+  cprintf("SENSOR1_1 state = %d\n",sdin[kMO_1] ->Sensor_OSSD1 );
+  cprintf("SENSOR1_2 state = %d\n",sdin[kMO_1] ->Sensor_OSSD2);
+	DO_Off(mcu_test1);   //20231212 추가
+
+	DO_On(mcu_test2);   //20231212 추가
+	  HAL_Delay(20);
+	sdin[kMO_2] ->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_2));
+	sdin[kMO_2] ->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_3));
+	cprintf("SENSOR2_1 state = %d\n",sdin[kMO_2] ->Sensor_OSSD1 );
+	cprintf("SENSOR2_2 state = %d\n",sdin[kMO_2] ->Sensor_OSSD2);	
+	DO_Off(mcu_test2);   //20231212 추가
+
+	DO_On(mcu_test3);   //20231212 추가
+	  HAL_Delay(20);
+	sdin[kMO_3] ->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4));
+	sdin[kMO_3] ->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5));
+	cprintf("SENSOR3_1 state = %d\n",sdin[kMO_3] ->Sensor_OSSD1 );
+	cprintf("SENSOR3_2 state = %d\n",sdin[kMO_3] ->Sensor_OSSD2);	
+	DO_Off(mcu_test3);   //20231212 추가
+
+	DO_On(mcu_test4);   //20231212 추가
+	  HAL_Delay(20);
+	sdin[kMO_4] ->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_6));
+	sdin[kMO_4] ->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7));
+	cprintf("SENSOR4_1 state = %d\n",sdin[kMO_4] ->Sensor_OSSD1 );
+	cprintf("SENSOR4_2 state = %d\n",sdin[kMO_4] ->Sensor_OSSD2);	
+	DO_Off(mcu_test4);   //20231212 추가
+	
+  for(i = 0; i < kNbrOfMO; i ++)
+	{
+		if((sdin[i]->Sensor_OSSD1 == 0U) || (sdin[i]->Sensor_OSSD2 == 0U))
+		{
+			cprintf("==============Derailment or OBstacle Logic Value Error==================\r\n");				
+			Led_On(error_led);				
+			Watchdog_Lock(wdog);
+			cprintf("System While Loop!\n\n");
+#ifndef __CT_EXT_CODE__
+  	  while (1) {};
+#else
+  	  break;
+#endif
+		}
+	}
+}
+/** \brief  Relay를 제어하여 릴레이 FeedBack 값을 읽어온다.
+  * \note   Relay FeedBack값이 HIGH 상태이어야 정상임.
+  * \retval 없음
+  */
+
+//static void Read_Relay_FeedBack_State(void)
+void Read_Relay_FeedBack_State(void)
+{
+u08_t 	i;
+u08_t   fb_state[kNbrOfDI];
+	
+	
+/* RY_EB1 릴레이 high로 설정   */
+/* RY_EB1_FB Port State Read */
+/* HIGH(True) = 정상, LOW(False) = 이상 */
+
+		Relay_On(eb1_out);
+		HAL_Delay(10);
+    fb_state[kRYI_1] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_8));
+		Relay_Off(eb1_out);
+	
+		Relay_On(eb2_out);
+		HAL_Delay(10);
+		fb_state[kRYI_2] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_9));
+		Relay_Off(eb2_out);
+	
+		Relay_On(snp_out);
+		HAL_Delay(10);
+		fb_state[kRYI_3] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_10));
+//		Relay_Off(snp_out);
+	
+		Relay_On(hlt_out);
+		HAL_Delay(10);
+		fb_state[kRYI_4] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_11));
+//		Relay_Off(hlt_out);
+		
+		Relay_On(obr_out);
+		HAL_Delay(10);
+		fb_state[kRYI_5] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_12));
+		Relay_Off(obr_out);
+
+		Relay_On(der_out);
+		HAL_Delay(10);
+		fb_state[kRYI_6] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13));
+		Relay_Off(der_out);
+
+		Relay_On(obl_out);
+		HAL_Delay(10);
+		fb_state[kRYI_7] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_14));
+		Relay_Off(obl_out);
+
+    Relay_On(del_out);
+		HAL_Delay(10);
+		fb_state[kRYI_8] = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_15));
+    Relay_Off(del_out);
+
+  	for(i=0; i < kNbrOfDOs; i++)
+  	{
+//				if(din[i]->curr_state == True)
+		    if(fb_state[i] == 0)
+				{
+					cprintf("\n\n\nF_003.\n");      // Fault Code 출력
+//					cprintf(" %s Current State =  HIGH\r\n", din[i]->name);
+//					cprintf("==============System Halt ==================\r\n");
+			    Led_On(error_led);
+				  Relay_Off(snp_out);
+				  Watchdog_Lock(wdog);
+//				  cprintf("System While Loop!\n\n");
+#ifndef __CT_EXT_CODE__
+					while (1) {};
+#endif
+          {};
+				}
+		}
+}
+/** \} Self_Diagnose_perform_Private_Functions */
+
+/** \} Applications */
+
+/*************** (C) COPYRIGHT SHALOM ENGINEERING CO., LTD. ****END OF FILE****/

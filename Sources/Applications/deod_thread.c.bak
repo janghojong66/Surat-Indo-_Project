@@ -1,0 +1,285 @@
+/** ****************************************************************************
+  * \file    deod_thread.c
+  * \author  Jang Ho Jong
+  * \version V1.0.0
+  * \date    2023.06.10
+  * \brief   DEOD Thread Body
+  * ***************************************************************************/
+
+/* Includes ------------------------------------------------------------------*/
+#include "deod_thread.h"
+#include "device.h"
+
+
+/* Private define ------------------------------------------------------------*/
+/* Private macro -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+/** \defgroup Deod_Thread_Module_Private_Variables SpeedMeter 모듈 비공개 변수
+  * \{ */
+
+u32_t     g_DEOD_Check_timer=0;				/* 장애물 및 탈선 감지 주기 타이머 */
+
+/* Private function prototypes -----------------------------------------------*/
+/** \defgroup Deod_Thread_Module_Private_Functions Key_Proc 모듈 비공개 함수
+  * \{ */
+
+/** \} Deod_Thread_Module_Private_Functions */
+
+/* Exported functions --------------------------------------------------------*/
+/** \addtogroup Deod_Thread_Module_Exported_Functions
+  * \{ */
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+/* Private constants ---------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+/** \defgroup Deod_Thread_Private_Variables 시스템 모니터링 쓰레드 비공개 변수
+  * \{ */
+static void Read_Safety_Sensor_Current(void);
+void Read_Safety_Sensor_OSSD(void);
+static void Decide_DEOD_State(void);
+/** \} Deod_Thread_Exported_Variables */
+
+/* Private function prototypes -----------------------------------------------*/
+/** \defgroup Deod_Thread_Private_Functions 시스템 모니터링 쓰레드 비공개 함수
+  * \{ */
+
+/* Private functions ---------------------------------------------------------*/
+/** \addtogroup Deod_Thread_Private_Functions
+  * \{ */
+
+/** \brief  DEOD 쓰레드 본체
+  * \param  argument - 쓰레드로 전달된 인자
+  * \note
+  * \retval 없음
+  */
+void   Deod_Thread(void)
+{
+ 
+	/* 일정시간(500msec )마다 RUN LED를 TOGGLE 시킨다. */
+	// 열차가 100Km/H로 달릴경우 1 Sec당 27.7M 전진
+	// 100msec일 경우 이동 거리는 약 2.7M 이동함.
+  if(g_DEOD_Check_timer  >= DEOD_SYS_CHECK_TIME)
+  {
+	  g_DEOD_Check_timer = 0;
+    Read_Safety_Sensor_Current();    // 전류체크
+		Read_Safety_Sensor_OSSD();       // 센서 로직체크
+		Decide_DEOD_State();             // 센서 동작 여부 최종 판단
+	}
+}
+
+
+/** \brief  센서의 전류값을 읽어서 장애물 및 탈선이 되었는지를 주기적으로 감시한다.
+  * \note   센서의 전류값이 160mV  ~ 190mV 이면 정상 범위
+  *         센서의 전류값이 360mV ~ 390mV 이면 장애물 및 탈선이 감지됨    
+  * \retval 없음
+  */
+
+static void Read_Safety_Sensor_Current(void)
+{
+static   u16_t adc1_value=0, adc2_value=0, adc3_value=0,adc4_value=0;
+ 
+/*****************************************************************************
+  **************************** OBR Sensor  ***********************************
+******************************************************************************/
+//    cprintf("\nSensor Voltage Check Interval Time\n");			// 모니터링 주기 테스트 코드
+	  HAL_ADC_Start(&hadc1);
+ 		while(HAL_ADC_PollForConversion(&hadc1, 5) ==HAL_OK)		{
+			adc1_value = (u16_t)HAL_ADC_GetValue(&hadc1);
+			adc1_value = ((3300U * adc1_value) / 4095U);	  // 검지시 200~ 499mV  // 평상시  51 ~ 199mV
+			sdin[kMO_1] ->Sensor_Cur = adc1_value;
+      if(adc1_value > MIN_ACT_CUR) { sdin[kMO_1] ->Sensor_flag = 1; }
+     	else { sdin[kMO_1] ->Sensor_flag = 0; }
+	  }                                                
+
+/*****************************************************************************
+  **************************** DER Sensor  ***********************************
+******************************************************************************/		
+	  HAL_ADC_Start(&hadc1);
+ 		while(HAL_ADC_PollForConversion(&hadc1, 5) ==HAL_OK)
+		{
+			adc2_value = (u16_t)HAL_ADC_GetValue(&hadc1);
+			adc2_value = ((3300U * adc2_value) / 4095U);
+      sdin[kMO_2] ->Sensor_Cur = adc2_value;
+      if(adc2_value > MIN_ACT_CUR) { sdin[kMO_2] ->Sensor_flag = 1; }
+     	else { 	sdin[kMO_2] ->Sensor_flag = 0; }
+	  }
+
+/*****************************************************************************
+  **************************** OBL Sensor  ***********************************
+******************************************************************************/		
+	  HAL_ADC_Start(&hadc1);
+ 		while(HAL_ADC_PollForConversion(&hadc1, 5) ==HAL_OK)
+		{
+			adc3_value = (u16_t)HAL_ADC_GetValue(&hadc1);
+			adc3_value = ((3300U * adc3_value) / 4095U);
+      sdin[kMO_3] ->Sensor_Cur = adc3_value;
+      if(adc3_value > MIN_ACT_CUR) {  sdin[kMO_3] ->Sensor_flag = 1;	}
+     	else   { sdin[kMO_3] ->Sensor_flag = 0;	}		
+	  }		
+
+/*****************************************************************************
+  **************************** DEL Sensor  ***********************************
+******************************************************************************/
+	  HAL_ADC_Start(&hadc1);
+ 		while(HAL_ADC_PollForConversion(&hadc1, 5) ==HAL_OK)
+		{
+			adc4_value = (u16_t)HAL_ADC_GetValue(&hadc1);
+			adc4_value = ((3300U * adc4_value) / 4095U);
+      sdin[kMO_4] ->Sensor_Cur = adc4_value;
+      if(adc4_value > MIN_ACT_CUR)  {  sdin[kMO_4] ->Sensor_flag = 1;	}
+     	else {  sdin[kMO_4] ->Sensor_flag = 0U;	}		
+	  }	
+    if(g_monitor_flag == True)
+    {			
+		  cprintf("OBR  = %d\r\n", sdin[kMO_1] ->Sensor_Cur);
+		  cprintf("DER  = %d\r\n", sdin[kMO_2] ->Sensor_Cur);
+		  cprintf("OBL  = %d\r\n", sdin[kMO_3] ->Sensor_Cur);
+		  cprintf("DEL  = %d\r\n", sdin[kMO_4] ->Sensor_Cur);
+		}
+}
+
+void Read_Safety_Sensor_OSSD(void)
+{
+	u08_t sensor_num=0;
+/*------------------------------------------------------------*/
+// 센서 OSSD1(탈선) 설정값 일기 
+/*------------------------------------------------------------*/	
+
+	for(sensor_num = 0; sensor_num < kNbrOfMO; sensor_num++)
+	{
+		if(sdin[sensor_num]->Sensor_flag == 1U) 
+		{	
+      if(sensor_num == 0U)
+			{
+				sdin[sensor_num]->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0));
+				sdin[sensor_num]->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1));
+			}
+			else if(sensor_num == 1U)
+			{
+				sdin[sensor_num]->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_2));
+				sdin[sensor_num]->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_3));
+			}
+			else if(sensor_num == 2U)
+			{
+				sdin[sensor_num]->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4));
+				sdin[sensor_num]->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5));
+			}
+#ifndef __NOT_USE_ST__
+			else if(sensor_num == 3U)
+#else
+			else
+#endif
+			{
+				sdin[sensor_num]->Sensor_OSSD1 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_6));
+				sdin[sensor_num]->Sensor_OSSD2 = (u08_t)(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7));
+			}
+			if((sdin[sensor_num]->Sensor_OSSD1 == 1U) && (sdin[sensor_num]->Sensor_OSSD2 == 1U	)) 
+			{ 
+				sdin[sensor_num]->Sensor_Counter++; 
+			}
+			else 
+			{ 
+				sdin[sensor_num]->Sensor_Counter = 0U; 
+			}
+		}
+
+	  if(g_monitor_flag == True)
+		{	
+			cprintf("SENSOR1 state = %d\n",sdin[sensor_num] ->Sensor_OSSD1 );
+			cprintf("SENSOR1 state = %d\n",sdin[sensor_num] ->Sensor_OSSD2);
+			cprintf("SENSOR1 Counter = %d\n",sdin[sensor_num] ->Sensor_Counter);
+		}
+	}
+}
+
+static void Decide_DEOD_State(void)
+{
+	u08_t i;
+	u08_t eb1_state = 0;
+	u08_t eb2_state = 0;	
+	
+  Led_t     * led[kNbrOfLEDs];
+  Relay_t   * relay[kNbrOfDOs];
+	
+  led[kLED_RUN] = run_led;
+  led[kLED_ERROR] = error_led;
+  led[kLED_OBR] = obr_led;
+  led[kLED_DER] = der_led;
+  led[kLED_OBL] = obl_led;
+  led[kLED_DEL] = del_led;
+  led[kLED_CON_RX] = console_rx_led;
+  led[kLED_CON_TX] = console_tx_led;
+
+	relay[kRY_EB1] = eb1_out ;
+  relay[kRY_EB2] = eb2_out ;
+  relay[kRY_SNP] = snp_out ;
+  relay[kRY_HLT] = hlt_out ;
+  relay[kRY_OBR] = obr_out ;
+  relay[kRY_DER] = der_out ;
+  relay[kRY_OBL] = obl_out ;
+  relay[kRY_DEL] = del_out ;
+
+  for(i = 0; i < kNbrOfMO ; i ++)
+	{
+	  if((sdin[i]->Sensor_Cur < MAX_ACT_CUR)  && (sdin[i]->Sensor_Cur > MIN_ACT_CUR ))  //장애물 감지 상태(300~499)
+		{
+		  if(((sdin[i]->Sensor_OSSD1== 1U) && (sdin[i]->Sensor_OSSD2== 1U)) && (sdin[i]->Sensor_Counter > MAX_COUNT))
+			{
+				cprintf("\n\n\nF_003.(Obstacle/Derailment Activ)\n");      // Fault Code 출력	
+			  Led_On(led[i+2U]);	  // 감지된 해당 LED ON 		
+			  Led_On(error_led);				
+				Relay_On(eb1_out);
+				Relay_On(eb2_out);
+//    		cprintf("\nEB1/EB2 Signal Output Command\n");			// 퍼포먼스 테스트 코드	
+				HAL_Delay(10);
+			  eb1_state = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_8));
+			  eb2_state = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_9));					
+//				cprintf("\n\eb1_state = %d\n",eb1_state);       	
+//				Relay_On(eb2_out);
+//				HAL_Delay(10);				
+//			  eb2_state = (u08_t)(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_9));	
+//				cprintf("\n\eb2_state = %d\n",eb2_state); 				
+				Relay_On(relay[i+4U]);  // 감지된 해당 릴레이 Signal ON 
+				if((eb1_state != 1U) || (eb2_state != 1U))
+				{
+					Relay_Off(hlt_out);    // HLT Signal OFF 
+					Watchdog_Lock(wdog);
+					cprintf("Relay abnormal action then Health Relay On\n\n");
+				}
+#ifndef __NOT_USE_ST__
+    	  while (1) {}; 
+#endif
+		   }
+    }
+		else if(sdin[i]->Sensor_Cur < LOW_CUR )          //50mvolt 이하 전압 감지
+    {
+				cprintf("\n\n\nF_002.(Low Voltage)\n");      // Fault Code 출력				
+			  Led_On(error_led);     // 시스템 ERROR LED ON
+				Relay_Off(hlt_out);	   // HLT Signal OFF 
+//        cprintf("\nTIS Signal Output(HLT_OUT)\n");			// 퍼포먼스 테스트 코드
+			  Watchdog_Lock(wdog);   // 와치독 기능 록킹
+#ifndef __NOT_USE_ST__
+   	    while (1) {};
+#endif
+    }
+		else if(sdin[i]->Sensor_Cur > MAX_CUR )     // 2023년 12월 12일 추가   (500mvolt 이상 검출시)
+    {
+				cprintf("\n\n\nF_002(Obstacle/Derailment Sensor High voltage).\n");      // Fault Code 출력			
+			  Led_On(error_led);     // 시스템 ERROR LED ON
+		    Relay_Off(hlt_out);	   // HLT Signal OFF 
+			   Watchdog_Lock(wdog);
+#ifndef __NOT_USE_ST__
+   	    while (1) {};
+#endif
+    }		
+  }
+}
+
+/** \} Deod_Thread_Module_Private_Functions */
+
+/** \} Deod_Thread */
+
+/** \} Applications */
+
+/*************** (C) COPYRIGHT SHALOM ENGINEERING CO., LTD. ****END OF FILE****/
